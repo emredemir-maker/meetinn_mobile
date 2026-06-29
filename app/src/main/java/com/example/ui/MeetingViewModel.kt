@@ -123,17 +123,17 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
         syncMessage.value = null
     }
 
-    fun addTextNote(title: String, content: String) {
+    fun addTextNote(title: String, content: String, lat: Double? = null, lng: Double? = null) {
         viewModelScope.launch {
             val m = selectedMeeting.value
-            repository.insert(Note(title = title, content = content, isAudio = false, meetingId = m?.id, meetingTitle = m?.title))
+            repository.insert(Note(title = title, content = content, isAudio = false, meetingId = m?.id, meetingTitle = m?.title, latitude = lat, longitude = lng))
         }
     }
 
-    fun addTranscriptNote(title: String, transcript: String) {
+    fun addTranscriptNote(title: String, transcript: String, lat: Double? = null, lng: Double? = null) {
         viewModelScope.launch {
             val m = selectedMeeting.value
-            repository.insert(Note(title = title, content = transcript, isAudio = true, audioPath = null, meetingId = m?.id, meetingTitle = m?.title))
+            repository.insert(Note(title = title, content = transcript, isAudio = true, audioPath = null, meetingId = m?.id, meetingTitle = m?.title, latitude = lat, longitude = lng))
         }
     }
 
@@ -157,7 +157,7 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
             syncMessage.value = "Toplantı özetleniyor..."
 
             try {
-                val prompt = "Aşağıdaki toplantı transkriptlerinden toplantının ana kararlarını ve eylem maddelerini (action items) çıkararak özetle:\n\n$transcriptParts"
+                val prompt = "Aşağıdaki toplantı transkriptlerinden toplantının ana kararlarını ve eylem maddelerini (action items) çıkararak özetle. Ayrıca toplantıda geçen veya araştırılan firmalar vb. kuruluşlar varsa bunlar hakkında Google Search kullanarak kısaca bilgi (sektör, vb.) ekle:\n\n$transcriptParts"
                 
                 val request = com.example.network.GenerateContentRequest(
                     contents = listOf(
@@ -166,6 +166,9 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
                                 com.example.network.Part(text = prompt)
                             )
                         )
+                    ),
+                    tools = listOf(
+                        com.example.network.Tool(googleSearch = emptyMap())
                     )
                 )
 

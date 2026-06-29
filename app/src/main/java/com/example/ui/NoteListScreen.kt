@@ -1,5 +1,13 @@
 package com.example.ui
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.ui.platform.LocalContext
+import com.example.utils.ReminderManager
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,6 +52,25 @@ fun NoteListScreen(
     val pendingSummary by viewModel.pendingSummary.collectAsStateWithLifecycle()
     
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val reminderManager = remember { ReminderManager(context) }
+    val coroutineScope = rememberCoroutineScope()
+    
+    var meetingToRemind by remember { mutableStateOf<com.example.network.MeetingDto?>(null) }
+    
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            meetingToRemind?.let { 
+                reminderManager.scheduleMeetingReminder(it) 
+                meetingToRemind = null
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Hatırlatıcı ayarlandı")
+                }
+            }
+        }
+    }
 
     LaunchedEffect(syncMessage) {
         syncMessage?.let {
@@ -199,6 +226,35 @@ fun NoteListScreen(
                                 },
                                 leadingIcon = {
                                     Icon(Icons.Default.Event, contentDescription = null)
+                                },
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = {
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                                    reminderManager.scheduleMeetingReminder(meeting)
+                                                    coroutineScope.launch {
+                                                        snackbarHostState.showSnackbar("Hatırlatıcı ayarlandı")
+                                                    }
+                                                } else {
+                                                    meetingToRemind = meeting
+                                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                                }
+                                            } else {
+                                                reminderManager.scheduleMeetingReminder(meeting)
+                                                coroutineScope.launch {
+                                                    snackbarHostState.showSnackbar("Hatırlatıcı ayarlandı")
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Notifications,
+                                            contentDescription = "Hatırlatıcı Kur",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             )
                         }

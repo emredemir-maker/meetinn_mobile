@@ -13,5 +13,7 @@ data class Note(
     val timestamp: Long = System.currentTimeMillis(),
     val isSynced: Boolean = false,
     val meetingId: String? = null,
-    val meetingTitle: String? = null
+    val meetingTitle: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
 )

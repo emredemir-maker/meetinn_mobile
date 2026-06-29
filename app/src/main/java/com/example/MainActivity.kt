@@ -41,16 +41,16 @@ class MainActivity : ComponentActivity() {
                     composable("add_text") {
                         AddTextNoteScreen(
                             onNavigateBack = { navController.popBackStack() },
-                            onSaveNote = { title, content ->
-                                viewModel.addTextNote(title, content)
+                            onSaveNote = { title, content, lat, lng ->
+                                viewModel.addTextNote(title, content, lat, lng)
                             }
                         )
                     }
                     composable("record_audio") {
                         RecordAudioScreen(
                             onNavigateBack = { navController.popBackStack() },
-                            onSaveTranscript = { title, content ->
-                                viewModel.addTranscriptNote(title, content)
+                            onSaveTranscript = { title, content, lat, lng ->
+                                viewModel.addTranscriptNote(title, content, lat, lng)
                             },
                             speechRecognizerManager = speechRecognizerManager
                         )

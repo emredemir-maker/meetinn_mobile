@@ -9,7 +9,14 @@ import retrofit2.http.Query
 data class GenerateContentRequest(
     val contents: List<Content>,
     val generationConfig: GenerationConfig? = null,
-    val systemInstruction: Content? = null
+    val systemInstruction: Content? = null,
+    val tools: List<Tool>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class Tool(
+    val googleSearch: Map<String, String>? = null,
+    val googleMaps: Map<String, String>? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -45,7 +52,7 @@ data class Candidate(
 )
 
 interface GeminiApiService {
-    @POST("v1beta/models/gemini-2.0-flash:generateContent")
+    @POST("v1beta/models/gemini-3.5-flash:generateContent")
     suspend fun generateContent(
         @Query("key") apiKey: String,
         @Body request: GenerateContentRequest

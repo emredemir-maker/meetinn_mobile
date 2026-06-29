@@ -27,7 +27,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun RecordAudioScreen(
     onNavigateBack: () -> Unit,
-    onSaveTranscript: (String, String) -> Unit,
+    onSaveTranscript: (String, String, Double?, Double?) -> Unit,
     speechRecognizerManager: SpeechRecognizerManager
 ) {
     val context = LocalContext.current
@@ -46,10 +46,41 @@ fun RecordAudioScreen(
         )
     }
 
+    var lat by remember { mutableStateOf<Double?>(null) }
+    var lng by remember { mutableStateOf<Double?>(null) }
+    val fusedLocationClient = remember { com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasPermission = isGranted
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        hasPermission = permissions.getOrDefault(Manifest.permission.RECORD_AUDIO, false)
+        
+        if (permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) ||
+            permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false)) {
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    location?.let {
+                        lat = it.latitude
+                        lng = it.longitude
+                    }
+                }
+            } catch (e: SecurityException) {}
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val fineLocationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarseLocationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (fineLocationGranted || coarseLocationGranted) {
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    location?.let {
+                        lat = it.latitude
+                        lng = it.longitude
+                    }
+                }
+            } catch (e: SecurityException) {}
+        }
     }
 
     DisposableEffect(Unit) {
@@ -122,8 +153,16 @@ fun RecordAudioScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             if (!hasPermission) {
-                Button(onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }) {
-                    Text("Mikrofon İzni Ver")
+                Button(onClick = { 
+                    permissionLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.RECORD_AUDIO,
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }) {
+                    Text("İzin Ver")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("Kayıt yapabilmek için mikrofon izni gereklidir.", style = MaterialTheme.typography.bodySmall)
@@ -155,7 +194,7 @@ fun RecordAudioScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
-                            onSaveTranscript(title.ifBlank { "İsimsiz Toplantı" }, transcription)
+                            onSaveTranscript(title.ifBlank { "İsimsiz Toplantı" }, transcription, lat, lng)
                             onNavigateBack()
                         },
                         modifier = Modifier.fillMaxWidth()

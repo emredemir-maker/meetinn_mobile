@@ -24,6 +24,8 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
     val notes: StateFlow<List<Note>>
 
     val upcomingMeetings = MutableStateFlow<List<MeetingDto>>(emptyList())
+    val pastMeetings = MutableStateFlow<List<MeetingDto>>(emptyList())
+    val rawMeetingsText = MutableStateFlow("")
     val selectedMeeting = MutableStateFlow<MeetingDto?>(null)
 
     val isSignedIn = MutableStateFlow(firebaseAuth.currentUser != null)
@@ -63,12 +65,99 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
         firebaseAuth.removeAuthStateListener(authListener)
     }
 
+    private fun parseIsoDate(dateStr: String): Long? {
+        if (dateStr.isBlank()) return null
+        val clean = dateStr.trim()
+        val formats = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm",
+            "yyyy-MM-dd"
+        )
+        for (fmt in formats) {
+            try {
+                val sdf = java.text.SimpleDateFormat(fmt, java.util.Locale.US)
+                if (fmt.endsWith("'Z'")) {
+                    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }
+                return sdf.parse(clean)?.time
+            } catch (e: Exception) {
+                // continue
+            }
+        }
+        
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                return java.time.Instant.parse(clean).toEpochMilli()
+            }
+        } catch (e: Exception) {}
+        
+        return clean.toLongOrNull()
+    }
+
     private fun fetchMeetings() {
         viewModelScope.launch {
             try {
-                upcomingMeetings.value = sync.fetchMeetings()
+                val allMeetings = mutableListOf<MeetingDto>()
+                
+                // Fetch from Firestore
+                val firestoreMeetings = sync.fetchMeetings()
+                allMeetings.addAll(firestoreMeetings)
+                
+                // Fetch from REST API
+                var apiCount = 0
+                try {
+                    val apiMeetings = com.example.network.RetrofitClient.apiService.getMeetings()
+                    apiCount = apiMeetings.size
+                    // Add API meetings that are not already in the list
+                    for (apiMeeting in apiMeetings) {
+                        if (allMeetings.none { it.id == apiMeeting.id || it.title == apiMeeting.title }) {
+                            allMeetings.add(apiMeeting)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                val nowMs = System.currentTimeMillis()
+                
+                val upcoming = mutableListOf<MeetingDto>()
+                val past = mutableListOf<MeetingDto>()
+                
+                for (m in allMeetings) {
+                    val statusClean = m.status.lowercase().trim()
+                    if (statusClean == "cancelled" || statusClean == "iptal") {
+                        continue
+                    }
+                    
+                    if (statusClean == "completed" || statusClean == "done" || statusClean == "tamamlandı") {
+                        past.add(m)
+                        continue
+                    }
+                    
+                    val meetingTimeMs = parseIsoDate(m.date)
+                    if (meetingTimeMs != null) {
+                        val isExplicitlyActive = statusClean in listOf("scheduled", "upcoming", "pending", "active", "in_progress", "planned")
+                        val isRecentOrFuture = meetingTimeMs >= (nowMs - 24 * 60 * 60 * 1000L) // 24 hours ago
+                        
+                        if (isExplicitlyActive || isRecentOrFuture) {
+                            upcoming.add(m)
+                        } else {
+                            past.add(m)
+                        }
+                    } else {
+                        // Default to upcoming if we can't parse the date and it's not explicitly completed
+                        upcoming.add(m)
+                    }
+                }
+                
+                upcomingMeetings.value = upcoming
+                pastMeetings.value = past
+                rawMeetingsText.value = sync.lastDebugLog + "\nAPI fetched ${apiCount} meetings. Total unique: ${allMeetings.size}"
             } catch (e: Exception) {
                 e.printStackTrace()
+                rawMeetingsText.value = "Exception: ${e.message}\n" + sync.lastDebugLog
             }
         }
     }
@@ -104,7 +193,7 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
                 // Refresh the web meeting list after pushing.
-                upcomingMeetings.value = sync.fetchMeetings()
+                fetchMeetings()
                 syncMessage.value = when {
                     localNotes.isEmpty() -> "Senkron güncel."
                     ok == localNotes.size -> "$ok not web uygulamasına senkronlandı."

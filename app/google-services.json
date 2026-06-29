@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "9872595808",
+    "project_id": "meet-inn-asistant-7a4f5",
+    "storage_bucket": "meet-inn-asistant-7a4f5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:9872595808:android:bfcb6b60e3422a35771c05",
+        "android_client_info": {
+          "package_name": "com.aistudio.meetingassistant.yqmzkl"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "9872595808-d563sj1k9vdpb2cl1url5sh5uhcs7msa.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.meetingassistant.yqmzkl",
+            "certificate_hash": "e3054a1573384a9038c01402b58686f6365f51d0"
+          }
+        },
+        {
+          "client_id": "9872595808-qbfd4snndkpsepmt1686fh7t06b8kgen.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAvOxp5NEp7b3O_7KanQ8NAfSNSbWkF59s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "9872595808-qbfd4snndkpsepmt1686fh7t06b8kgen.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

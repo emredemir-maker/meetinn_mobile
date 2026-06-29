@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.auth.AuthManager
 import com.example.ui.SignInScreen
 import com.google.firebase.Firebase
@@ -52,7 +53,11 @@ class MainActivity : ComponentActivity() {
                 val signInLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.StartActivityForResult()
                 ) { result ->
-                    scope.launch { authManager.handleSignInResult(result.data) }
+                    scope.launch { 
+                        authManager.handleSignInResult(result.data).onFailure { error ->
+                            android.widget.Toast.makeText(this@MainActivity, "Giriş hatası: ${error.message}", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
 
                 if (!signedIn) {
@@ -80,12 +85,20 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     composable("record_audio") {
+                        val upcomingMeetings by viewModel.upcomingMeetings.collectAsStateWithLifecycle()
+                        val pastMeetings by viewModel.pastMeetings.collectAsStateWithLifecycle()
+                        val selectedMeeting by viewModel.selectedMeeting.collectAsStateWithLifecycle()
+                        
                         RecordAudioScreen(
                             onNavigateBack = { navController.popBackStack() },
                             onSaveTranscript = { title, content, lat, lng ->
                                 viewModel.addTranscriptNote(title, content, lat, lng)
                             },
-                            speechRecognizerManager = speechRecognizerManager
+                            speechRecognizerManager = speechRecognizerManager,
+                            upcomingMeetings = upcomingMeetings,
+                            pastMeetings = pastMeetings,
+                            selectedMeeting = selectedMeeting,
+                            onMeetingSelected = { viewModel.selectMeeting(it) }
                         )
                     }
                 }

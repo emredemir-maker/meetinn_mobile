@@ -1,5 +1,5 @@
 {
-  "name": "Toplantı Asistanı",
+  "name": "Meet-Inn Mobile",
   "description": "Sesli ve yazılı hızlı toplantı notu asistanı",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

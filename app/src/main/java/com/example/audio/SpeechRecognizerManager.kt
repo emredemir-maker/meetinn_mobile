@@ -3,6 +3,8 @@ package com.example.audio
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -21,11 +23,10 @@ class SpeechRecognizerManager(private val context: Context) {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    fun startListening() {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            _error.value = "Cihazınızda konuşma tanıma özelliği bulunmuyor."
-            return
-        }
+    private var speechIntent: Intent? = null
+    
+    private fun setupRecognizer() {
+        if (speechRecognizer != null) return
 
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
             setRecognitionListener(object : RecognitionListener {
@@ -35,16 +36,16 @@ class SpeechRecognizerManager(private val context: Context) {
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 
                 override fun onEndOfSpeech() {
-                    // Continuous listening
-                    if (_isListening.value) {
-                        startListening()
-                    }
+                    // Do not restart here, wait for onResults
                 }
 
                 override fun onError(error: Int) {
                     when (error) {
                         SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                            if (_isListening.value) startListening()
+                            restartListening()
+                        }
+                        SpeechRecognizer.ERROR_CLIENT -> {
+                            restartListening()
                         }
                         else -> {
                             _error.value = "Hata oluştu (Kodu: $error)"
@@ -63,9 +64,7 @@ class SpeechRecognizerManager(private val context: Context) {
                             "${_transcription.value} $newText"
                         }
                     }
-                    if (_isListening.value) {
-                        startListening()
-                    }
+                    restartListening()
                 }
 
                 override fun onPartialResults(partialResults: Bundle?) {
@@ -76,15 +75,43 @@ class SpeechRecognizerManager(private val context: Context) {
             })
         }
 
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR") // Turkish, or Locale.getDefault()
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
+    }
 
-        speechRecognizer?.startListening(intent)
+    private fun restartListening() {
+        if (_isListening.value) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (_isListening.value) {
+                    try {
+                        speechRecognizer?.startListening(speechIntent)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }, 100)
+        }
+    }
+
+    fun startListening() {
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            _error.value = "Cihazınızda konuşma tanıma özelliği bulunmuyor."
+            return
+        }
+
+        setupRecognizer()
+        
         _isListening.value = true
         _error.value = null
+        
+        try {
+            speechRecognizer?.startListening(speechIntent)
+        } catch (e: Exception) {
+            _error.value = "Hata: ${e.message}"
+        }
     }
 
     fun stopListening() {

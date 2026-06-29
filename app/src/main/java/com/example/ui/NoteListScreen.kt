@@ -9,12 +9,16 @@ import androidx.compose.ui.platform.LocalContext
 import com.example.utils.ReminderManager
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.BusinessCenter
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -46,6 +50,7 @@ fun NoteListScreen(
 ) {
     val notes by viewModel.notes.collectAsStateWithLifecycle()
     val upcomingMeetings by viewModel.upcomingMeetings.collectAsStateWithLifecycle()
+    val pastMeetings by viewModel.pastMeetings.collectAsStateWithLifecycle()
     val selectedMeeting by viewModel.selectedMeeting.collectAsStateWithLifecycle()
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val syncMessage by viewModel.syncMessage.collectAsStateWithLifecycle()
@@ -212,6 +217,43 @@ fun NoteListScreen(
                     ) {
                         items(upcomingMeetings, key = { it.id }) { meeting ->
                             val isSelected = selectedMeeting?.id == meeting.id
+                            
+                            val displayDate = try {
+                                var parsedDate: java.util.Date? = null
+                                val formats = listOf(
+                                    "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                                    "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                                    "yyyy-MM-dd'T'HH:mm:ss.SSS",
+                                    "yyyy-MM-dd'T'HH:mm:ss",
+                                    "yyyy-MM-dd'T'HH:mm",
+                                    "yyyy-MM-dd"
+                                )
+                                for (fmt in formats) {
+                                    try {
+                                        val sdf = java.text.SimpleDateFormat(fmt, java.util.Locale.US)
+                                        if (fmt.endsWith("'Z'")) {
+                                            sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                                        }
+                                        parsedDate = sdf.parse(meeting.date)
+                                        if (parsedDate != null) break
+                                    } catch (e: Exception) {}
+                                }
+                                if (parsedDate != null) {
+                                    val sdfOut = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale.getDefault())
+                                    sdfOut.format(parsedDate)
+                                } else {
+                                    meeting.date
+                                }
+                            } catch (e: Exception) {
+                                meeting.date
+                            }
+                            
+                            val displayStatus = when (meeting.status) {
+                                "upcoming", "pending" -> "Bekleyen"
+                                "completed" -> "Tamamlandı"
+                                else -> "Bekleyen"
+                            }
+                            
                             FilterChip(
                                 selected = isSelected,
                                 onClick = { 
@@ -221,7 +263,11 @@ fun NoteListScreen(
                                 label = {
                                     Column(modifier = Modifier.padding(vertical = 8.dp)) {
                                         Text(meeting.title, style = MaterialTheme.typography.bodyMedium)
-                                        Text("${meeting.date} - ${meeting.status}", style = MaterialTheme.typography.labelSmall)
+                                        if (meeting.date.isNotBlank()) {
+                                            Text("$displayDate - $displayStatus", style = MaterialTheme.typography.labelSmall)
+                                        } else if (displayStatus.isNotBlank()) {
+                                            Text(displayStatus, style = MaterialTheme.typography.labelSmall)
+                                        }
                                     }
                                 },
                                 leadingIcon = {
@@ -262,6 +308,85 @@ fun NoteListScreen(
                 }
             }
             
+            if (pastMeetings.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Geçmiş Toplantılar",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(pastMeetings, key = { it.id }) { meeting ->
+                            val isSelected = selectedMeeting?.id == meeting.id
+                            
+                            val displayDate = try {
+                                var parsedDate: java.util.Date? = null
+                                val formats = listOf(
+                                    "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                                    "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                                    "yyyy-MM-dd'T'HH:mm:ss.SSS",
+                                    "yyyy-MM-dd'T'HH:mm:ss",
+                                    "yyyy-MM-dd'T'HH:mm",
+                                    "yyyy-MM-dd"
+                                )
+                                for (fmt in formats) {
+                                    try {
+                                        val sdf = java.text.SimpleDateFormat(fmt, java.util.Locale.US)
+                                        if (fmt.endsWith("'Z'")) {
+                                            sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                                        }
+                                        parsedDate = sdf.parse(meeting.date)
+                                        if (parsedDate != null) break
+                                    } catch (e: Exception) {}
+                                }
+                                if (parsedDate != null) {
+                                    val sdfOut = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale.getDefault())
+                                    sdfOut.format(parsedDate)
+                                } else {
+                                    meeting.date
+                                }
+                            } catch (e: Exception) {
+                                meeting.date
+                            }
+                            
+                            val displayStatus = when (meeting.status) {
+                                "upcoming", "pending" -> "Bekleyen"
+                                "completed" -> "Tamamlandı"
+                                else -> "Tamamlandı"
+                            }
+                            
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { 
+                                    if (isSelected) viewModel.selectMeeting(null) 
+                                    else viewModel.selectMeeting(meeting) 
+                                },
+                                label = {
+                                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                        Text(meeting.title, style = MaterialTheme.typography.bodyMedium)
+                                        if (meeting.date.isNotBlank()) {
+                                            Text("$displayDate - $displayStatus", style = MaterialTheme.typography.labelSmall)
+                                        } else if (displayStatus.isNotBlank()) {
+                                            Text(displayStatus, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.EventAvailable, contentDescription = null)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
@@ -292,6 +417,57 @@ fun NoteListScreen(
                         )
                     }
                 }
+            }
+            
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+                var isDebugExpanded by remember { mutableStateOf(false) }
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isDebugExpanded = !isDebugExpanded },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Senkronizasyon Tanılama Raporu",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = if (isDebugExpanded) "Gizle" else "Göster",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (isDebugExpanded) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val rawText = viewModel.rawMeetingsText.collectAsStateWithLifecycle().value
+                            Box(
+                                modifier = Modifier
+                                    .heightIn(max = 350.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                Text(
+                                    text = if (rawText.isBlank()) "Rapor hazırlanıyor veya oturum açılmamış..." else rawText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }

@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/meeting_assistant_icon_1782640124159"
+        android:drawable="@drawable/meet_inn_logo_1782728829131"
         android:gravity="center" />
 </layer-list>

@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
 import com.example.data.Note
 import com.example.data.NoteRepository
+import com.example.data.MeetInnSync
 import com.example.network.MeetingDto
-import com.example.network.NoteSyncDto
-import com.example.network.RetrofitClient
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -17,15 +19,24 @@ import kotlinx.coroutines.launch
 
 class MeetingViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: NoteRepository
+    private val sync = MeetInnSync()
+    private val firebaseAuth: FirebaseAuth = Firebase.auth
     val notes: StateFlow<List<Note>>
-    
+
     val upcomingMeetings = MutableStateFlow<List<MeetingDto>>(emptyList())
     val selectedMeeting = MutableStateFlow<MeetingDto?>(null)
 
+    val isSignedIn = MutableStateFlow(firebaseAuth.currentUser != null)
     val isSyncing = MutableStateFlow(false)
     val syncMessage = MutableStateFlow<String?>(null)
-    
+
     val pendingSummary = MutableStateFlow<String?>(null)
+
+    private val authListener = FirebaseAuth.AuthStateListener { a ->
+        val signed = a.currentUser != null
+        isSignedIn.value = signed
+        if (signed) fetchMeetings()
+    }
 
     init {
         val database = androidx.room.Room.databaseBuilder(
@@ -42,22 +53,22 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
-        fetchMeetings()
+        // Auth state drives the meeting fetch; the listener fires immediately
+        // with the current user on registration.
+        firebaseAuth.addAuthStateListener(authListener)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        firebaseAuth.removeAuthStateListener(authListener)
     }
 
     private fun fetchMeetings() {
         viewModelScope.launch {
             try {
-                // Fetch from backend
-                val meetings = RetrofitClient.apiService.getMeetings()
-                upcomingMeetings.value = meetings
+                upcomingMeetings.value = sync.fetchMeetings()
             } catch (e: Exception) {
-                // Mock data if backend is unreachable for preview
-                upcomingMeetings.value = listOf(
-                    MeetingDto("m1", "Proje Planlama", "Bugün", "pending"),
-                    MeetingDto("m2", "Müşteri Görüşmesi", "Yarın", "pending"),
-                    MeetingDto("m3", "Aylık Değerlendirme", "Cuma", "pending")
-                )
+                e.printStackTrace()
             }
         }
     }
@@ -68,51 +79,40 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
 
     fun syncWithWeb() {
         viewModelScope.launch {
+            if (firebaseAuth.currentUser == null) {
+                syncMessage.value = "Senkron için önce Google ile giriş yap."
+                return@launch
+            }
             isSyncing.value = true
             syncMessage.value = "Senkronize ediliyor..."
             try {
-                // 1. Fetch remote notes
-                val remoteNotes = RetrofitClient.apiService.getPreviousNotes()
-                
-                // Convert and save remote notes locally (basic example)
-                remoteNotes.forEach { remoteNote ->
-                    // Note: Here you'd ideally check if the note already exists
-                    repository.insert(
-                        Note(
-                            title = remoteNote.title,
-                            content = remoteNote.content,
-                            isAudio = remoteNote.isAudio,
-                            timestamp = remoteNote.timestamp
-                        )
-                    )
-                }
-
-                // 2. Push local notes
                 val localNotes = notes.value.filter { !it.isSynced }
-                val dtos = localNotes.map { local ->
-                    NoteSyncDto(
-                        id = local.id.toString(),
-                        title = local.title,
-                        content = local.content,
-                        isAudio = local.isAudio,
-                        timestamp = local.timestamp,
-                        meetingId = local.meetingId
+                var ok = 0
+                for (n in localNotes) {
+                    val res = sync.pushNote(
+                        localId = n.id,
+                        title = n.title,
+                        content = n.content,
+                        timestampMs = n.timestamp,
+                        existingMeetingId = n.meetingId,
+                        lat = n.latitude,
+                        lng = n.longitude
                     )
-                }
-                
-                if (dtos.isNotEmpty()) {
-                    RetrofitClient.apiService.syncNotes(dtos)
-                    // Mark as synced
-                    localNotes.forEach {
-                        repository.insert(it.copy(isSynced = true))
+                    if (res.isSuccess) {
+                        repository.insert(n.copy(isSynced = true))
+                        ok++
                     }
                 }
-
-                syncMessage.value = "Başarıyla senkronize edildi."
+                // Refresh the web meeting list after pushing.
+                upcomingMeetings.value = sync.fetchMeetings()
+                syncMessage.value = when {
+                    localNotes.isEmpty() -> "Senkron güncel."
+                    ok == localNotes.size -> "$ok not web uygulamasına senkronlandı."
+                    else -> "$ok/${localNotes.size} not senkronlandı (bazıları başarısız)."
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
-                // In a real app, you would handle network errors gracefully
-                syncMessage.value = "Web servisine bağlanılamadı. API ayarlarını kontrol edin."
+                syncMessage.value = "Senkron hatası: ${e.localizedMessage}"
             } finally {
                 isSyncing.value = false
             }

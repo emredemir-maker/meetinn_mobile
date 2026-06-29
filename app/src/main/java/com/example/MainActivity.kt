@@ -15,18 +15,51 @@ import com.example.ui.MeetingViewModel
 import com.example.ui.NoteListScreen
 import com.example.ui.RecordAudioScreen
 import com.example.ui.theme.MyApplicationTheme
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import com.example.auth.AuthManager
+import com.example.ui.SignInScreen
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MeetingViewModel by viewModels()
     private lateinit var speechRecognizerManager: SpeechRecognizerManager
+    private lateinit var authManager: AuthManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         speechRecognizerManager = SpeechRecognizerManager(this)
+        authManager = AuthManager(this)
 
         setContent {
             MyApplicationTheme {
+                var signedIn by remember { mutableStateOf(authManager.isSignedIn()) }
+                DisposableEffect(Unit) {
+                    val listener = FirebaseAuth.AuthStateListener { signedIn = it.currentUser != null }
+                    Firebase.auth.addAuthStateListener(listener)
+                    onDispose { Firebase.auth.removeAuthStateListener(listener) }
+                }
+                val scope = rememberCoroutineScope()
+                val signInLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.StartActivityForResult()
+                ) { result ->
+                    scope.launch { authManager.handleSignInResult(result.data) }
+                }
+
+                if (!signedIn) {
+                    SignInScreen(onSignIn = { signInLauncher.launch(authManager.signInIntent()) })
+                    return@MyApplicationTheme
+                }
+
                 val navController = rememberNavController()
 
                 NavHost(navController = navController, startDestination = "list") {

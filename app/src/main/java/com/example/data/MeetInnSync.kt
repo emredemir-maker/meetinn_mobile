@@ -11,25 +11,45 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
+/** Bir web toplantısının rapor içeriği (mobil rapor ekranı için). */
+data class MeetingDetail(
+    val id: String,
+    val title: String,
+    val status: String,
+    val summary: String?,
+    val decisions: List<String>,
+    val actions: List<ActionItemDto>,
+    val transcript: List<String>
+)
+
+data class ActionItemDto(
+    val description: String,
+    val assignee: String?,
+    val dueDate: String?,
+    val status: String
+)
+
 /**
  * Firestore sync layer — talks DIRECTLY to the same Firestore the Meet-Inn web
  * app uses (no REST backend exists; the only Cloud Function is Firestore-
  * triggered). Maps the local [Note] model onto the web schema:
  *
  *   each pushed note → a `meetings/{id}` doc (source:'mobile', location) +
- *   one `transcriptSegments` entry holding the note text.
+ *   one `transcriptSegments` entry holding the note text (or the meeting
+ *   `summary` field when the note is a generated summary).
  *
- * If a note is tied to an existing web meeting ([existingMeetingId]), the
- * segment is appended to THAT meeting instead of creating a new one.
- *
- * Writes obey firestore.rules: meeting create needs
- * title/date/status/ownerId/createdAt/updatedAt with server timestamps and a
- * sanitized doc id; segment create needs ownerId == uid under an owned meeting.
+ * Reads obey firestore.rules: the ONLY meetings query the rules allow is one
+ * filtered by `ownerId == uid` (the list rule requires it), so that is the
+ * single source — querying other collections/fields just yields permission
+ * errors. fetchMeetingDetail reads the meeting doc + its actionItems + a few
+ * transcript segments, all owner-scoped.
  */
 class MeetInnSync {
 
     private val db = Firebase.firestore
     private val auth = Firebase.auth
+
+    var lastDebugLog: String = ""
 
     private fun sanitizeId(raw: String): String =
         raw.replace(Regex("[^a-zA-Z0-9_\\-]"), "_").take(128)
@@ -42,102 +62,97 @@ class MeetInnSync {
     private fun clock(timestampMs: Long): String =
         SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestampMs))
 
-    var lastDebugLog: String = ""
-
-    /** Past/meetings owned by the signed-in user (replaces the old REST mock). */
+    /**
+     * The signed-in user's meetings. Firestore rules only permit the
+     * `ownerId == uid` query, so that is the single, correct source. Note:
+     * the web app's *upcoming* calendar events are EPHEMERAL (not persisted to
+     * Firestore until opened), so only materialized/extension-created meetings
+     * appear here.
+     */
     suspend fun fetchMeetings(): List<MeetingDto> {
-        val uid = auth.currentUser?.uid ?: return emptyList()
-        val email = auth.currentUser?.email ?: ""
-        val debugSb = StringBuilder()
-        debugSb.append("UID: $uid\nEmail: $email\n")
-        
-        val allDocs = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
-        
-        val queries = mutableListOf<Pair<String, com.google.firebase.firestore.Query>>()
-        
-        queries.add("meetings ownerId == uid" to db.collection("meetings").whereEqualTo("ownerId", uid))
-        queries.add("meetings userId == uid" to db.collection("meetings").whereEqualTo("userId", uid))
-        queries.add("meetings participants contains uid" to db.collection("meetings").whereArrayContains("participants", uid))
-        queries.add("events ownerId == uid" to db.collection("events").whereEqualTo("ownerId", uid))
-        queries.add("events userId == uid" to db.collection("events").whereEqualTo("userId", uid))
-        queries.add("calendar_events userId == uid" to db.collection("calendar_events").whereEqualTo("userId", uid))
-        
-        if (email.isNotBlank()) {
-            queries.add("meetings ownerEmail == email" to db.collection("meetings").whereEqualTo("ownerEmail", email))
-            queries.add("meetings userEmail == email" to db.collection("meetings").whereEqualTo("userEmail", email))
-            queries.add("meetings participants contains email" to db.collection("meetings").whereArrayContains("participants", email))
-            queries.add("meetings attendees contains email" to db.collection("meetings").whereArrayContains("attendees", email))
-            queries.add("events ownerEmail == email" to db.collection("events").whereEqualTo("ownerEmail", email))
-            queries.add("events userEmail == email" to db.collection("events").whereEqualTo("userEmail", email))
-            queries.add("events participants contains email" to db.collection("events").whereArrayContains("participants", email))
-            queries.add("events attendees contains email" to db.collection("events").whereArrayContains("attendees", email))
-            queries.add("calendar_events userEmail == email" to db.collection("calendar_events").whereEqualTo("userEmail", email))
-            queries.add("calendar_events participants contains email" to db.collection("calendar_events").whereArrayContains("participants", email))
-            queries.add("calendar_events attendees contains email" to db.collection("calendar_events").whereArrayContains("attendees", email))
-            queries.add("calendar userId == uid" to db.collection("calendar").whereEqualTo("userId", uid))
-            queries.add("calendar userEmail == email" to db.collection("calendar").whereEqualTo("userEmail", email))
-            queries.add("calendarEvents userId == uid" to db.collection("calendarEvents").whereEqualTo("userId", uid))
-            queries.add("calendarEvents userEmail == email" to db.collection("calendarEvents").whereEqualTo("userEmail", email))
+        val uid = auth.currentUser?.uid ?: run {
+            lastDebugLog = "Giriş yapılmamış."
+            return emptyList()
         }
-        
-        // Add fallbacks
-        queries.add("users/meetings" to db.collection("users").document(uid).collection("meetings"))
-        queries.add("users/events" to db.collection("users").document(uid).collection("events"))
-        queries.add("users/calendar_events" to db.collection("users").document(uid).collection("calendar_events"))
-        queries.add("users/calendarEvents" to db.collection("users").document(uid).collection("calendarEvents"))
-        queries.add("users/calendar" to db.collection("users").document(uid).collection("calendar"))
-        
-        queries.add("meetings fallback" to db.collection("meetings"))
-        queries.add("events fallback" to db.collection("events"))
-        queries.add("calendar_events fallback" to db.collection("calendar_events"))
-        queries.add("calendarEvents fallback" to db.collection("calendarEvents"))
-        queries.add("calendar fallback" to db.collection("calendar"))
-        
-        for ((name, q) in queries) {
-            try {
-                val snap = q.get().await()
-                if (!snap.isEmpty) {
-                    debugSb.append("$name: Succeeded (${snap.size()} docs)\n")
-                    allDocs.addAll(snap.documents)
-                } else {
-                    debugSb.append("$name: Succeeded (Empty)\n")
+        val sb = StringBuilder("UID: $uid\nE-posta: ${auth.currentUser?.email ?: "-"}\n")
+        return try {
+            val snap = db.collection("meetings").whereEqualTo("ownerId", uid).get().await()
+            sb.append("meetings(ownerId==uid): ${snap.size()} kayıt\n")
+            val list = snap.documents.mapNotNull { d ->
+                val title = d.getString("title") ?: return@mapNotNull null
+                MeetingDto(
+                    id = d.id,
+                    title = title,
+                    date = findDateInDocument(d) ?: (d.getString("date") ?: ""),
+                    status = d.getString("status") ?: ""
+                )
+            }.sortedByDescending { it.date }
+            list.forEach { sb.append(" - ${it.id} | ${it.title} | ${it.status} | ${it.date}\n") }
+            lastDebugLog = sb.toString()
+            list
+        } catch (e: Exception) {
+            lastDebugLog = sb.append("HATA: ${e.message}\n").toString()
+            emptyList()
+        }
+    }
+
+    /** Full report content for one meeting: summary, decisions, action items,
+     *  and a few transcript lines. */
+    suspend fun fetchMeetingDetail(meetingId: String): MeetingDetail? {
+        val uid = auth.currentUser?.uid ?: return null
+        val doc = db.collection("meetings").document(meetingId).get().await()
+        if (!doc.exists()) return null
+
+        val title = doc.getString("title") ?: "Toplantı"
+        val status = doc.getString("status") ?: ""
+        val summary = doc.getString("summary") ?: doc.getString("neutralSummary")
+        val decisions = parseTextList(doc.get("decisions"))
+
+        val actions = try {
+            db.collection("actionItems")
+                .whereEqualTo("meetingId", meetingId)
+                .whereEqualTo("ownerId", uid)
+                .get().await()
+                .documents.map { a ->
+                    ActionItemDto(
+                        description = a.getString("description") ?: "",
+                        assignee = a.getString("assignee"),
+                        dueDate = a.getString("dueDate"),
+                        status = a.getString("status") ?: "pending"
+                    )
                 }
-            } catch (e: Exception) {
-                debugSb.append("$name: Failed (${e.message})\n")
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        val transcript = try {
+            db.collection("meetings").document(meetingId)
+                .collection("transcriptSegments")
+                .get().await()
+                .documents.mapNotNull { s ->
+                    val text = s.getString("text")
+                    if (text.isNullOrBlank()) return@mapNotNull null
+                    val speaker = s.getString("speaker")
+                    if (speaker.isNullOrBlank()) text else "$speaker: $text"
+                }
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        return MeetingDetail(meetingId, title, status, summary, decisions, actions, transcript)
+    }
+
+    /** decisions/risks/questions are stored as arrays of maps ({text, ...}) on
+     *  the web; pull out the human-readable text. */
+    private fun parseTextList(raw: Any?): List<String> {
+        if (raw !is List<*>) return emptyList()
+        return raw.mapNotNull { item ->
+            when (item) {
+                is Map<*, *> -> item["text"] as? String
+                is String -> item
+                else -> null
             }
         }
-        
-        // Remove duplicates by ID
-        val uniqueDocs = allDocs.associateBy { it.id }.values
-        debugSb.append("Unique documents count: ${uniqueDocs.size}\n")
-        
-        val result = uniqueDocs.mapNotNull { d ->
-            val title = d.getString("title") 
-                ?: d.getString("name") 
-                ?: d.getString("summary") 
-                ?: d.getString("subject") 
-                ?: d.getString("description")
-                ?: "Doc:${d.id} Keys:${d.data?.keys?.joinToString(",")}"
-                
-            var dateStr = findDateInDocument(d) ?: ""
-            
-            val status = d.getString("status") ?: ""
-            if (uniqueDocs.indexOf(d) < 10) {
-                debugSb.append(" - Doc: ${d.id}, Data: ${d.data}\n")
-            } else {
-                debugSb.append(" - Doc: ${d.id}, Title: $title, Date: $dateStr, Status: $status\n")
-            }
-            
-            MeetingDto(
-                id = d.id,
-                title = title,
-                date = dateStr,
-                status = status
-            )
-        }.sortedByDescending { it.date }
-        
-        lastDebugLog = debugSb.toString()
-        return result
     }
 
     /**
@@ -202,10 +217,10 @@ class MeetInnSync {
 
     private fun findDateInDocument(d: com.google.firebase.firestore.DocumentSnapshot): String? {
         val dateFields = listOf(
-            "date", "startDate", "startTime", "start_time", "scheduledAt", 
+            "date", "startDate", "startTime", "start_time", "scheduledAt",
             "scheduled_at", "time", "timestamp", "createdAt", "created_at"
         )
-        
+
         for (field in dateFields) {
             val v = d.get(field) ?: continue
             if (v is Map<*, *>) {
@@ -230,25 +245,25 @@ class MeetInnSync {
                 return formatJavaDate(java.util.Date(ms))
             }
         }
-        
+
         val startVal = d.get("start")
         if (startVal is Map<*, *>) {
             val dateTime = startVal["dateTime"] ?: startVal["date"]
             if (dateTime is String) return dateTime
         }
-        
+
         return null
     }
 
     private fun formatTimestamp(ts: com.google.firebase.Timestamp): String {
-        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
-        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        sdf.timeZone = TimeZone.getTimeZone("UTC")
         return sdf.format(ts.toDate())
     }
 
     private fun formatJavaDate(date: java.util.Date): String {
-        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
-        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        sdf.timeZone = TimeZone.getTimeZone("UTC")
         return sdf.format(date)
     }
 }

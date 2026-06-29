@@ -34,6 +34,9 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
 
     val pendingSummary = MutableStateFlow<String?>(null)
 
+    val meetingDetail = MutableStateFlow<com.example.data.MeetingDetail?>(null)
+    val isLoadingDetail = MutableStateFlow(false)
+
     private val authListener = FirebaseAuth.AuthStateListener { a ->
         val signed = a.currentUser != null
         isSignedIn.value = signed
@@ -100,61 +103,35 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
     private fun fetchMeetings() {
         viewModelScope.launch {
             try {
-                val allMeetings = mutableListOf<MeetingDto>()
-                
-                // Fetch from Firestore
-                val firestoreMeetings = sync.fetchMeetings()
-                allMeetings.addAll(firestoreMeetings)
-                
-                // Fetch from REST API
-                var apiCount = 0
-                try {
-                    val apiMeetings = com.example.network.RetrofitClient.apiService.getMeetings()
-                    apiCount = apiMeetings.size
-                    // Add API meetings that are not already in the list
-                    for (apiMeeting in apiMeetings) {
-                        if (allMeetings.none { it.id == apiMeeting.id || it.title == apiMeeting.title }) {
-                            allMeetings.add(apiMeeting)
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                val allMeetings = sync.fetchMeetings()
                 val nowMs = System.currentTimeMillis()
-                
+
                 val upcoming = mutableListOf<MeetingDto>()
                 val past = mutableListOf<MeetingDto>()
-                
+
                 for (m in allMeetings) {
                     val statusClean = m.status.lowercase().trim()
-                    if (statusClean == "cancelled" || statusClean == "iptal") {
-                        continue
-                    }
-                    
+                    if (statusClean == "cancelled" || statusClean == "iptal") continue
+
                     if (statusClean == "completed" || statusClean == "done" || statusClean == "tamamlandı") {
                         past.add(m)
                         continue
                     }
-                    
+
                     val meetingTimeMs = parseIsoDate(m.date)
-                    if (meetingTimeMs != null) {
-                        val isExplicitlyActive = statusClean in listOf("scheduled", "upcoming", "pending", "active", "in_progress", "planned")
-                        val isRecentOrFuture = meetingTimeMs >= (nowMs - 24 * 60 * 60 * 1000L) // 24 hours ago
-                        
-                        if (isExplicitlyActive || isRecentOrFuture) {
-                            upcoming.add(m)
-                        } else {
-                            past.add(m)
-                        }
-                    } else {
-                        // Default to upcoming if we can't parse the date and it's not explicitly completed
+                    val isExplicitlyActive = statusClean in listOf("scheduled", "upcoming", "pending", "active", "in_progress", "planned")
+                    val isRecentOrFuture = meetingTimeMs != null && meetingTimeMs >= (nowMs - 24 * 60 * 60 * 1000L)
+
+                    if (isExplicitlyActive || isRecentOrFuture || meetingTimeMs == null) {
                         upcoming.add(m)
+                    } else {
+                        past.add(m)
                     }
                 }
-                
+
                 upcomingMeetings.value = upcoming
                 pastMeetings.value = past
-                rawMeetingsText.value = sync.lastDebugLog + "\nAPI fetched ${apiCount} meetings. Total unique: ${allMeetings.size}"
+                rawMeetingsText.value = sync.lastDebugLog
             } catch (e: Exception) {
                 e.printStackTrace()
                 rawMeetingsText.value = "Exception: ${e.message}\n" + sync.lastDebugLog
@@ -164,6 +141,30 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
 
     fun selectMeeting(meeting: MeetingDto?) {
         selectedMeeting.value = meeting
+    }
+
+    /** Bir toplantıyı id ile seç (rapor ekranındaki "bu toplantıya not al"). */
+    fun selectMeetingById(meetingId: String) {
+        val m = (upcomingMeetings.value + pastMeetings.value).firstOrNull { it.id == meetingId }
+        if (m != null) selectedMeeting.value = m
+    }
+
+    fun loadMeetingDetail(meetingId: String) {
+        viewModelScope.launch {
+            isLoadingDetail.value = true
+            meetingDetail.value = null
+            try {
+                meetingDetail.value = sync.fetchMeetingDetail(meetingId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isLoadingDetail.value = false
+            }
+        }
+    }
+
+    fun clearMeetingDetail() {
+        meetingDetail.value = null
     }
 
     fun syncWithWeb() {

@@ -46,7 +46,8 @@ fun NoteListScreen(
     viewModel: MeetingViewModel,
     onAddTextNoteClick: () -> Unit,
     onRecordAudioClick: () -> Unit,
-    onPlayAudio: (String) -> Unit
+    onPlayAudio: (String) -> Unit,
+    onMeetingClick: (com.example.network.MeetingDto) -> Unit
 ) {
     val notes by viewModel.notes.collectAsStateWithLifecycle()
     val upcomingMeetings by viewModel.upcomingMeetings.collectAsStateWithLifecycle()
@@ -256,10 +257,7 @@ fun NoteListScreen(
                             
                             FilterChip(
                                 selected = isSelected,
-                                onClick = { 
-                                    if (isSelected) viewModel.selectMeeting(null) 
-                                    else viewModel.selectMeeting(meeting) 
-                                },
+                                onClick = { onMeetingClick(meeting) },
                                 label = {
                                     Column(modifier = Modifier.padding(vertical = 8.dp)) {
                                         Text(meeting.title, style = MaterialTheme.typography.bodyMedium)
@@ -364,10 +362,7 @@ fun NoteListScreen(
                             
                             FilterChip(
                                 selected = isSelected,
-                                onClick = { 
-                                    if (isSelected) viewModel.selectMeeting(null) 
-                                    else viewModel.selectMeeting(meeting) 
-                                },
+                                onClick = { onMeetingClick(meeting) },
                                 label = {
                                     Column(modifier = Modifier.padding(vertical = 8.dp)) {
                                         Text(meeting.title, style = MaterialTheme.typography.bodyMedium)

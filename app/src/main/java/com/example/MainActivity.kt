@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.auth.AuthManager
 import com.example.ui.SignInScreen
+import com.example.ui.MeetingReportScreen
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
@@ -73,7 +74,8 @@ class MainActivity : ComponentActivity() {
                             viewModel = viewModel,
                             onAddTextNoteClick = { navController.navigate("add_text") },
                             onRecordAudioClick = { navController.navigate("record_audio") },
-                            onPlayAudio = { _ -> }
+                            onPlayAudio = { _ -> },
+                            onMeetingClick = { navController.navigate("report/${it.id}") }
                         )
                     }
                     composable("add_text") {
@@ -99,6 +101,18 @@ class MainActivity : ComponentActivity() {
                             pastMeetings = pastMeetings,
                             selectedMeeting = selectedMeeting,
                             onMeetingSelected = { viewModel.selectMeeting(it) }
+                        )
+                    }
+                    composable("report/{meetingId}") { backStackEntry ->
+                        val mid = backStackEntry.arguments?.getString("meetingId") ?: ""
+                        MeetingReportScreen(
+                            meetingId = mid,
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() },
+                            onTakeNote = {
+                                navController.popBackStack()
+                                navController.navigate("record_audio")
+                            }
                         )
                     }
                 }

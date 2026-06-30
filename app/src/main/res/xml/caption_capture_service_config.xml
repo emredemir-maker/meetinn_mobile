@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Accessibility service config for capturing on-screen meeting captions.
+
+  PHASE 1 (diagnostics): we listen to Google Meet + Teams + Zoom packages and
+  log every text-bearing node so we can identify the caption container on a
+  real device, the same way we tuned the Teams web scraper. Once the caption
+  node selectors are known, capture becomes targeted.
+
+  If the diagnostic log stays empty during a real Meet call, the Meet package
+  name differs on this device — broaden packageNames (or remove the attribute
+  to listen to all apps) and reinstall.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowContentChanged|typeViewTextChanged|typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="200"
+    android:description="@string/caption_service_description"
+    android:packageNames="com.google.android.apps.meetings,com.google.android.apps.tachyon,com.microsoft.teams,us.zoom.videomeetings" />

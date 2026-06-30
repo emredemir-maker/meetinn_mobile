@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Meet-Inn Mobile</string>
+    <string name="caption_service_label">Meet-Inn Altyazı Yakalama</string>
+    <string name="caption_service_description">Toplantı uygulamalarındaki (Google Meet, Teams) ekran altyazılarını okuyarak toplantı transkriptini oluşturur. Yalnızca altyazı metni okunur; başka hiçbir uygulama verisi toplanmaz.</string>
 </resources>

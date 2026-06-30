@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Event
@@ -77,7 +78,8 @@ fun NoteListScreen(
     onAddTextNoteClick: () -> Unit,
     onRecordAudioClick: () -> Unit,
     onPlayAudio: (String) -> Unit,
-    onMeetingClick: (MeetingDto) -> Unit
+    onMeetingClick: (MeetingDto) -> Unit,
+    onLiveCaptureClick: () -> Unit = {}
 ) {
     val notes by viewModel.notes.collectAsStateWithLifecycle()
     val nowMeeting by viewModel.nowMeeting.collectAsStateWithLifecycle()
@@ -171,6 +173,9 @@ fun NoteListScreen(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
                 actions = {
+                    IconButton(onClick = onLiveCaptureClick) {
+                        Icon(Icons.Default.ClosedCaption, contentDescription = "Canlı Altyazı Yakalama", tint = MaterialTheme.colorScheme.onSurface)
+                    }
                     if (isSyncing) {
                         CircularProgressIndicator(
                             modifier = Modifier.padding(end = 16.dp).size(24.dp),

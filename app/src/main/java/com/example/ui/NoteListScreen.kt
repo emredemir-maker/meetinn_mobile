@@ -271,18 +271,6 @@ fun NoteListScreen(
                 }
             }
 
-            // ── BEKLEYEN AKSİYONLAR ──
-            item { SectionHeader("BEKLEYEN AKSİYONLAR", count = pendingActions.size, icon = Icons.Default.CheckCircle) }
-            if (pendingActions.isEmpty()) {
-                item { EmptyHint("Sana atanmış bekleyen aksiyon yok.") }
-            } else {
-                items(pendingActions) { action ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        PendingActionCard(action)
-                    }
-                }
-            }
-
             // ── GEÇMİŞ TOPLANTILAR ──
             if (pastMeetings.isNotEmpty()) {
                 item { SectionHeader("GEÇMİŞ TOPLANTILAR", count = pastMeetings.size, icon = Icons.Default.EventAvailable) }
@@ -377,7 +365,7 @@ fun NoteListScreen(
 @Composable
 private fun SectionHeader(title: String, count: Int? = null, icon: ImageVector? = null) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, top = 16.dp, bottom = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {

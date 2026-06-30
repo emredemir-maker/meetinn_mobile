@@ -19,7 +19,9 @@ data class MeetingDetail(
     val summary: String?,
     val decisions: List<String>,
     val actions: List<ActionItemDto>,
-    val transcript: List<String>
+    val transcript: List<String>,
+    val agenda: String? = null,
+    val preparation: String? = null
 )
 
 data class ActionItemDto(
@@ -139,7 +141,10 @@ class MeetInnSync {
             emptyList()
         }
 
-        return MeetingDetail(meetingId, title, status, summary, decisions, actions, transcript)
+        val agenda = doc.getString("agenda") ?: doc.getString("description")
+        val preparation = doc.getString("preparation") ?: doc.getString("brief") ?: doc.getString("aiBrief") ?: doc.getString("assistantPreparation") ?: doc.getString("preMeetingBrief")
+
+        return MeetingDetail(meetingId, title, status, summary, decisions, actions, transcript, agenda, preparation)
     }
 
     /** Pending action items assigned to the signed-in user, across all

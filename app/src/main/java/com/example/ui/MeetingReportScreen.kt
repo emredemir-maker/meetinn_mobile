@@ -64,8 +64,13 @@ fun MeetingReportScreen(
                 }
             }
             detail == null -> {
+                val msg = if (meetingId.startsWith("cal:")) {
+                    "Bu yaklaşan toplantının henüz raporu yok. Toplantı gerçekleştikten ve özetlendikten sonra burada görünecek."
+                } else {
+                    "Rapor bulunamadı veya bu toplantıya erişimin yok."
+                }
                 Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    Text("Rapor bulunamadı veya bu toplantıya erişimin yok.")
+                    Text(msg, modifier = Modifier.padding(24.dp))
                 }
             }
             else -> {

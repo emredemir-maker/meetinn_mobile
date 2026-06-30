@@ -142,6 +142,32 @@ class MeetInnSync {
         return MeetingDetail(meetingId, title, status, summary, decisions, actions, transcript)
     }
 
+    /** Pending action items assigned to the signed-in user, across all
+     *  meetings — the web "BEKLEYEN AKSİYONLAR" panel. Owner-scoped to satisfy
+     *  firestore.rules; completed items are filtered out. */
+    suspend fun fetchPendingActions(): List<ActionItemDto> {
+        val uid = auth.currentUser?.uid ?: return emptyList()
+        return try {
+            db.collection("actionItems")
+                .whereEqualTo("ownerId", uid)
+                .get().await()
+                .documents.mapNotNull { a ->
+                    val status = a.getString("status") ?: "pending"
+                    if (status.equals("completed", ignoreCase = true)) return@mapNotNull null
+                    val description = a.getString("description") ?: return@mapNotNull null
+                    if (description.isBlank()) return@mapNotNull null
+                    ActionItemDto(
+                        description = description,
+                        assignee = a.getString("assignee"),
+                        dueDate = a.getString("dueDate"),
+                        status = status
+                    )
+                }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     /** decisions/risks/questions are stored as arrays of maps ({text, ...}) on
      *  the web; pull out the human-readable text. */
     private fun parseTextList(raw: Any?): List<String> {

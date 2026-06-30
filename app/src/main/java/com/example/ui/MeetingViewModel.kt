@@ -20,8 +20,15 @@ import kotlinx.coroutines.launch
 class MeetingViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: NoteRepository
     private val sync = MeetInnSync()
+    private val calendarSync = com.example.data.CalendarSync(application)
     private val firebaseAuth: FirebaseAuth = Firebase.auth
     val notes: StateFlow<List<Note>>
+
+    // Home dashboard buckets, mirroring the web app's HomeScreen.
+    val nowMeeting = MutableStateFlow<MeetingDto?>(null)        // ŞİMDİ
+    val todayMeetings = MutableStateFlow<List<MeetingDto>>(emptyList())  // BUGÜN
+    val weekMeetings = MutableStateFlow<List<MeetingDto>>(emptyList())   // BU HAFTA
+    val pendingActions = MutableStateFlow<List<com.example.data.ActionItemDto>>(emptyList()) // BEKLEYEN AKSİYONLAR
 
     val upcomingMeetings = MutableStateFlow<List<MeetingDto>>(emptyList())
     val pastMeetings = MutableStateFlow<List<MeetingDto>>(emptyList())
@@ -100,38 +107,74 @@ class MeetingViewModel(application: Application) : AndroidViewModel(application)
         return clean.toLongOrNull()
     }
 
+    private fun isSameDay(a: Long, b: Long): Boolean {
+        val ca = java.util.Calendar.getInstance().apply { timeInMillis = a }
+        val cb = java.util.Calendar.getInstance().apply { timeInMillis = b }
+        return ca.get(java.util.Calendar.YEAR) == cb.get(java.util.Calendar.YEAR) &&
+            ca.get(java.util.Calendar.DAY_OF_YEAR) == cb.get(java.util.Calendar.DAY_OF_YEAR)
+    }
+
     private fun fetchMeetings() {
         viewModelScope.launch {
             try {
-                val allMeetings = sync.fetchMeetings()
                 val nowMs = System.currentTimeMillis()
+                val weekMs = 7L * 24 * 60 * 60 * 1000
 
-                val upcoming = mutableListOf<MeetingDto>()
-                val past = mutableListOf<MeetingDto>()
+                // Firestore meetings (persisted: completed, active, mobile notes).
+                val firestore = sync.fetchMeetings()
+                // Google Calendar events (ephemeral upcoming meetings) — same
+                // source the web app uses for BUGÜN / BU HAFTA.
+                val calendar = calendarSync.fetchUpcoming()
 
-                for (m in allMeetings) {
-                    val statusClean = m.status.lowercase().trim()
-                    if (statusClean == "cancelled" || statusClean == "iptal") continue
+                // Upcoming pool: calendar events + non-completed Firestore meetings
+                // that carry a date. Deduped by id; bucketed purely by time.
+                val pool = (calendar + firestore.filter {
+                    val s = it.status.lowercase().trim()
+                    s != "completed" && s != "done" && s != "tamamlandı" &&
+                        s != "cancelled" && s != "iptal" && it.date.isNotBlank()
+                }).distinctBy { it.id }
 
-                    if (statusClean == "completed" || statusClean == "done" || statusClean == "tamamlandı") {
-                        past.add(m)
-                        continue
-                    }
+                val timed = pool.mapNotNull { m -> parseIsoDate(m.date)?.let { m to it } }
+                    .sortedBy { it.second }
 
-                    val meetingTimeMs = parseIsoDate(m.date)
-                    val isExplicitlyActive = statusClean in listOf("scheduled", "upcoming", "pending", "active", "in_progress", "planned")
-                    val isRecentOrFuture = meetingTimeMs != null && meetingTimeMs >= (nowMs - 24 * 60 * 60 * 1000L)
+                // ŞİMDİ: started in the last hour OR starting within the next hour.
+                val now = timed.firstOrNull {
+                    val diffMin = (it.second - nowMs) / 60000.0
+                    diffMin > -60 && diffMin < 60
+                }?.first
 
-                    if (isExplicitlyActive || isRecentOrFuture || meetingTimeMs == null) {
-                        upcoming.add(m)
-                    } else {
-                        past.add(m)
-                    }
-                }
+                // BUGÜN: today, still in the future, excluding the ŞİMDİ meeting.
+                val today = timed.filter {
+                    isSameDay(it.second, nowMs) && it.second > nowMs && it.first.id != now?.id
+                }.map { it.first }
 
+                // BU HAFTA: not today, within the next 7 days.
+                val week = timed.filter {
+                    !isSameDay(it.second, nowMs) &&
+                        it.second >= nowMs && (it.second - nowMs) <= weekMs
+                }.map { it.first }
+
+                nowMeeting.value = now
+                todayMeetings.value = today
+                weekMeetings.value = week
+
+                val upcoming = (listOfNotNull(now) + today + week)
                 upcomingMeetings.value = upcoming
-                pastMeetings.value = past
-                rawMeetingsText.value = sync.lastDebugLog
+
+                // Everything else from Firestore (completed + stale) → archive.
+                val bucketIds = upcoming.map { it.id }.toSet()
+                pastMeetings.value = firestore
+                    .filter { it.id !in bucketIds }
+                    .sortedByDescending { parseIsoDate(it.date) ?: 0L }
+
+                pendingActions.value = sync.fetchPendingActions()
+
+                rawMeetingsText.value = buildString {
+                    append(sync.lastDebugLog)
+                    append("\n--- Takvim ---\n")
+                    append(calendarSync.lastDebugLog)
+                    append("\nŞİMDİ: ${if (now != null) 1 else 0} | BUGÜN: ${today.size} | BU HAFTA: ${week.size} | Bekleyen aksiyon: ${pendingActions.value.size}")
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 rawMeetingsText.value = "Exception: ${e.message}\n" + sync.lastDebugLog

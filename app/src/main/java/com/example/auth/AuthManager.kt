@@ -6,6 +6,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -39,6 +40,11 @@ class AuthManager(context: Context) {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .apply { if (webClientId.isNotBlank()) requestIdToken(webClientId) }
             .requestEmail()
+            // Read-only Google Calendar access so the mobile app can show the
+            // same upcoming meetings (BUGÜN / BU HAFTA) the web app reads from
+            // Google Calendar. Granted once at sign-in; CalendarSync fetches the
+            // OAuth access token for these scopes via GoogleAuthUtil.
+            .requestScopes(Scope(CALENDAR_READONLY_SCOPE))
             .build()
         googleClient = GoogleSignIn.getClient(context, gso)
     }
@@ -63,5 +69,9 @@ class AuthManager(context: Context) {
     suspend fun signOut() {
         runCatching { googleClient.signOut().await() }
         auth.signOut()
+    }
+
+    companion object {
+        const val CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
     }
 }
